@@ -68,7 +68,7 @@ data:
 
                     
                     local hm = hmac:new(key, hmac.ALGOS.SHA256)
-                    hm:update(string_to_sign)  -- HMAC imzasını hesapla
+                    hm:update(string_to_sign)
 
                     
                     local signature = hm:final()
