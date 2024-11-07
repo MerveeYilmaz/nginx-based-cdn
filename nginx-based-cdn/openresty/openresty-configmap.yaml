@@ -72,7 +72,7 @@ data:
 
                     
                     local signature = hm:final()
-                    local signature_base64 = ngx.encode_base64(signature):gsub("=", ""):gsub("+", "-"):gsub("/", "_")  -- URL güvenli hale getir
+                    local signature_base64 = ngx.encode_base64(signature):gsub("=", ""):gsub("+", "-"):gsub("/", "_") 
                     
 
                    
