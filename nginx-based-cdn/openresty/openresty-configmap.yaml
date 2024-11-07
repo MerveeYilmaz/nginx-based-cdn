@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openresty-config
+data:
+  nginx.conf: |
+    worker_processes auto;
+    worker_rlimit_nofile 100480;
+
+    events {
+        worker_connections 4096;
+        multi_accept    on;
+    }
+
+    http {
+        resolver kube-dns.kube-system.svc.cluster.local valid=30s;
+        include       mime.types;
+        default_type  application/octet-stream;
+        proxy_cache_path /usr/local/openresty/nginx/cache levels=1:2 keys_zone=my_cache:10m max_size=1g inactive=60m use_temp_path=off;
+        limit_req_zone $binary_remote_addr zone=one:10m rate=10r/s;
+        sendfile        on;
+        keepalive_timeout  300;
+
+        server {
+            listen 80;
+
+            location ~* /resize/(\d+)x(\d+)/(.+\.(jpg|jpeg|png|gif))$ {
+                limit_req zone=one burst=20 nodelay;
+                set $width $1;
+                set $height $2;
+                set $image $3;            
+                
+                
+                set $signed_url '';
+                default_type 'text/plain';
+                rewrite_by_lua_block {
+                    ngx.header.content_type = 'text/plain'
+                    local width = ngx.var.width
+                    local width_int = tonumber(width)
+                    local height = ngx.var.height
+                    local height_int = tonumber(height)
+                    local image = ngx.var.image
+                    local hmac = require "resty.hmac"
+                    
+                    if not width_int or not height_int or width_int < 10 or width_int > 2000 or height_int < 10 or height_int > 2000 then
+                       ngx.status = ngx.HTTP_BAD_REQUEST
+                       ngx.say("Invalid width or height. Width and height must be between 10 and 2000.")
+                       ngx.exit(ngx.HTTP_BAD_REQUEST)
+                    end
+                    
+                    local imgproxy_server = "http://35.184.105.218:8080"
+                    local processing_options = "rs:fit:" .. width .. ":" .. height
+                    local origin_url = "http://35.225.204.145/images/" .. image
+
+                    local key = "secret"
+                    local salt = "hello"
+
+                    if not key or not salt then
+                        error("Base64 decoding failed for key or salt")
+                    end
+
+                    
+                    local base64_encoded_url = ngx.encode_base64(origin_url):gsub("=", ""):gsub("+", "-"):gsub("/", "_")
+
+                    
+                    local string_to_sign = salt .. "/" .. processing_options .. "/" .. base64_encoded_url
+                    
+
+                    
+                    local hm = hmac:new(key, hmac.ALGOS.SHA256)
+                    hm:update(string_to_sign)  -- HMAC imzasını hesapla
+
+                    
+                    local signature = hm:final()
+                    local signature_base64 = ngx.encode_base64(signature):gsub("=", ""):gsub("+", "-"):gsub("/", "_")  -- URL güvenli hale getir
+                    
+
+                   
+                    local signed_url = string.format("%s/%s/%s/%s", imgproxy_server, signature_base64, processing_options, base64_encoded_url)
+                    ngx.var.signed_url = signed_url
+                    
+                }
+
+                proxy_cache my_cache;
+                proxy_cache_key $host$request_uri;
+                proxy_cache_lock on;
+                add_header X-Cache-Status $upstream_cache_status;
+                expires 1d;
+                proxy_pass $signed_url;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+
+
+            }            
+        }
+    }

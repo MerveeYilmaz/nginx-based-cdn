@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imgproxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: imgproxy
+  template:
+    metadata:
+      labels:
+        app: imgproxy
+    spec:
+      containers:
+      - name: imgproxy
+        image: darthsim/imgproxy
+        env:
+        - name: IMGPROXY_USE_SIGNATURE
+          value: "true"
+        - name: IMGPROXY_KEY
+          value: "736563726574" 
+        - name: IMGPROXY_SALT
+          value: "68656C6C6F" 
+        ports:
+        - containerPort: 8080
